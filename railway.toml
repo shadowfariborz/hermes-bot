@@ -1,0 +1,59 @@
+# 🤖 Hermes Bot - Complete Railway Template
+# One-click deploy with API Server + Telegram Bot
+
+[template]
+description = "Telegram AI Bot - Chat, Image, News, Web Search, Database"
+name = "hermes-bot"
+icon = "🤖"
+
+# ── Main Service ─────────────────────────────────────────────────────
+[[services]]
+name = "hermes-bot"
+source = "."
+buildCommand = "pip install -r requirements.txt"
+startCommand = "python app.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+
+# ── Environment Variables ────────────────────────────────────────────
+# Required - User must fill these
+[services.env.TELEGRAM_BOT_TOKEN]
+description = "Bot token from @BotFather"
+required = true
+defaultValue = ""
+
+[services.env.ADMIN_ID]
+description = "Your Telegram user ID (numeric, from @userinfobot)"
+required = true
+defaultValue = ""
+
+[services.env.AI_API_KEY]
+description = "AI API key (OpenAI, OpenRouter, etc.)"
+required = true
+defaultValue = ""
+
+[services.env.API_SECRET]
+description = "Random secret string for API authentication"
+required = true
+defaultValue = "CHANGE_ME_TO_RANDOM"
+
+# Optional - Pre-filled with defaults
+[services.env.AI_BASE_URL]
+description = "AI API base URL"
+required = false
+defaultValue = "https://api.openai.com/v1"
+
+[services.env.AI_MODEL]
+description = "AI model name"
+required = false
+defaultValue = "gpt-4"
+
+[services.env.GITHUB_TOKEN]
+description = "GitHub token for database (optional)"
+required = false
+defaultValue = ""
+
+[services.env.GITHUB_REPO]
+description = "GitHub repo for database (format: user/repo)"
+required = false
+defaultValue = ""
