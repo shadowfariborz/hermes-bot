@@ -288,8 +288,8 @@ def search_database(query):
         return []
 
 # ── Call AI ───────────────────────────────────────────────────────────
-def call_ai(messages, model=None):
-    """Call the AI model"""
+def call_ai(messages, model=None, retries=3):
+    """Call AI model with retry logic"""
     if not AI_API_KEY:
         return "API key not set!"
     
@@ -305,35 +305,45 @@ def call_ai(messages, model=None):
         "Authorization": f"Bearer {AI_API_KEY}"
     }
     
-    try:
-        data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
-        
-        with urllib.request.urlopen(req, timeout=120) as response:
-            raw = response.read().decode('utf-8')
+    import time
+    
+    for attempt in range(retries):
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(url, data=data, headers=headers, method='POST')
             
-            try:
-                result = json.loads(raw)
-            except json.JSONDecodeError:
-                last_brace = raw.rfind('}')
-                if last_brace > 0:
-                    result = json.loads(raw[:last_brace+1])
-                else:
-                    return "Error parsing response"
-            
-            if 'choices' in result and len(result['choices']) > 0:
-                message = result['choices'][0].get('message', {})
-                content = message.get('content')
-                reasoning = message.get('reasoning', '')
-                return content or reasoning or "No response"
-            return "No response"
-            
-    except urllib.error.HTTPError as e:
-        log(f"API Error {e.code}")
-        return f"API Error: {e.code}"
-    except Exception as e:
-        log(f"Error: {e}")
-        return f"Server Error: {str(e)[:100]}"
+            with urllib.request.urlopen(req, timeout=120) as response:
+                raw = response.read().decode('utf-8')
+                
+                try:
+                    result = json.loads(raw)
+                except json.JSONDecodeError:
+                    last_brace = raw.rfind('}')
+                    if last_brace > 0:
+                        result = json.loads(raw[:last_brace+1])
+                    else:
+                        return "Error parsing response"
+                
+                if 'choices' in result and len(result['choices']) > 0:
+                    message = result['choices'][0].get('message', {})
+                    content = message.get('content')
+                    reasoning = message.get('reasoning', '')
+                    return content or reasoning or "No response"
+                return "No response"
+                
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                wait_time = 2 ** attempt  # 1, 2, 4 seconds
+                log(f"Rate limited, waiting {wait_time}s (attempt {attempt+1}/{retries})")
+                time.sleep(wait_time)
+                continue
+            log(f"API Error {e.code}")
+            return f"API Error: {e.code}"
+        except Exception as e:
+            log(f"Error: {e}")
+            return f"Server Error: {str(e)[:100]}"
+    
+    return "Rate limit exceeded. Please try again later."
 
 # ── HTTP Handler ─────────────────────────────────────────────────────
 class APIHandler(BaseHTTPRequestHandler):
