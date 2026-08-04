@@ -1,0 +1,6 @@
+# Hermes Bot - Python Dependencies
+# No external dependencies required - uses Python standard library only!
+# 
+# If you want to add optional features:
+# pip install requests  # For advanced HTTP features
+# pip install aiohttp   # For async operations
