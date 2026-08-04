@@ -290,7 +290,9 @@ def search_database(query):
 # ── Call AI ───────────────────────────────────────────────────────────
 def call_ai(messages, model=None, retries=3):
     """Call AI model with retry logic"""
+    log(f"Calling AI: model={model or AI_MODEL}, url={AI_BASE_URL}")
     if not AI_API_KEY:
+        log("ERROR: AI_API_KEY not set!")
         return "API key not set!"
     
     url = f"{AI_BASE_URL}/chat/completions"
