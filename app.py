@@ -18,8 +18,8 @@ from html import unescape
 # ── Configuration ─────────────────────────────────────────────────────
 PORT = int(os.environ.get('PORT', '8080'))
 AI_API_KEY = os.environ.get('AI_API_KEY', '')
-AI_BASE_URL = os.environ.get('AI_BASE_URL', 'https://api.openai.com/v1')
-AI_MODEL = os.environ.get('AI_MODEL', 'gpt-4')
+AI_BASE_URL = os.environ.get('AI_BASE_URL', 'https://openrouter.ai/api/v1')
+AI_MODEL = os.environ.get('AI_MODEL', 'google/gemini-2.0-flash-001')
 API_SECRET = os.environ.get('API_SECRET', 'change-me-in-production')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 ADMIN_ID = os.environ.get('ADMIN_ID', '')
