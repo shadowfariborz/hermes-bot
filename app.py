@@ -617,22 +617,32 @@ def text_to_speech(text, voice="fa-IR-DilaraNeural"):
 
 # ── Speech-to-Text (placeholder) ────────────────────────────────────
 def speech_to_text(audio_data):
-    """Convert audio to text - requires Whisper"""
+    """Convert audio to text using speech_recognition (free Google STT)"""
     try:
         import tempfile
+        import speech_recognition as sr
+        
+        # Save audio to temp file
         with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as f:
             f.write(audio_data)
             path = f.name
         
+        # Use Google Speech Recognition
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(path) as source:
+            audio = recognizer.record(source)
+        
+        # Try Persian first, then English
         try:
-            import whisper
-            model = whisper.load_model("base")
-            result = model.transcribe(path, language="fa")
-            return result["text"], None
-        except ImportError:
-            return None, "Whisper not installed on server"
-        except Exception as e:
-            return None, str(e)
+            text = recognizer.recognize_google(audio, language='fa-IR')
+        except:
+            text = recognizer.recognize_google(audio, language='en-US')
+        
+        return text, None
+    except sr.UnknownValueError:
+        return None, "Could not understand audio"
+    except sr.RequestError as e:
+        return None, f"STT service error: {e}"
     except Exception as e:
         return None, str(e)
 

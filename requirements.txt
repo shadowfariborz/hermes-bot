@@ -4,3 +4,4 @@
 # If you want to add optional features:
 # pip install requests  # For advanced HTTP features
 # pip install aiohttp   # For async operations
+speech_recognition
