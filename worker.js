@@ -53,7 +53,7 @@ async function handleMessage(msg, env) {
     const mentionPatterns = ['فریبرز', 'fariborz', '@fariborz_bot', '@nuxal_bot'];
     const isMentioned = mentionPatterns.some(p => text.toLowerCase().includes(p.toLowerCase()));
     
-    if (!isReplyToBot && !isMentioned && !hasVoice) return;
+    if (!isReplyToBot && !isMentioned) return;
     
     mentionPatterns.forEach(p => {
       text = text.replace(new RegExp(p, 'gi'), '').trim();
