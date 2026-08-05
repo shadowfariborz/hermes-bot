@@ -375,6 +375,12 @@ class APIHandler(BaseHTTPRequestHandler):
             self.handle_schedule()
         elif self.path == '/search-db':
             self.handle_search_db()
+        elif self.path == '/generate-image':
+            self.handle_generate_image()
+        elif self.path == '/text-to-speech':
+            self.handle_text_to_speech()
+        elif self.path == '/speech-to-text':
+            self.handle_speech_to_text()
         else:
             self.send_error(404)
     
@@ -564,3 +570,160 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# ── Image Generation ─────────────────────────────────────────────────
+def generate_image(prompt, width=1024, height=768):
+    """Generate image using Pollinations.ai"""
+    try:
+        import urllib.parse
+        import tempfile
+        encoded = urllib.parse.quote(prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true"
+        
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read()
+            if len(data) < 5000:
+                try:
+                    err = json.loads(data.decode('utf-8'))
+                    return None, err.get('error', {}).get('message', 'Unknown')
+                except:
+                    pass
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+                f.write(data)
+                return f.name, None
+    except Exception as e:
+        return None, str(e)
+
+# ── Text-to-Speech ───────────────────────────────────────────────────
+def text_to_speech(text, voice="fa-IR-DilaraNeural"):
+    """Convert text to speech using edge-tts"""
+    try:
+        import asyncio
+        import edge_tts
+        import tempfile
+        
+        async def generate():
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
+                path = f.name
+            comm = edge_tts.Communicate(text, voice)
+            await comm.save(path)
+            return path
+        
+        path = asyncio.run(generate())
+        return path, None
+    except Exception as e:
+        return None, str(e)
+
+# ── Speech-to-Text (placeholder) ────────────────────────────────────
+def speech_to_text(audio_data):
+    """Convert audio to text - requires Whisper"""
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as f:
+            f.write(audio_data)
+            path = f.name
+        
+        try:
+            import whisper
+            model = whisper.load_model("base")
+            result = model.transcribe(path, language="fa")
+            return result["text"], None
+        except ImportError:
+            return None, "Whisper not installed on server"
+        except Exception as e:
+            return None, str(e)
+    except Exception as e:
+        return None, str(e)
+
+# ── HTTP Handlers for new endpoints ──────────────────────────────────
+def handle_generate_image(self):
+    try:
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        data = json.loads(body.decode('utf-8'))
+        
+        if data.get('token') != API_SECRET:
+            self.send_json({"error": "Unauthorized"}, 401)
+            return
+        
+        prompt = data.get('prompt', '')
+        if not prompt:
+            self.send_json({"error": "prompt required"}, 400)
+            return
+        
+        log(f"Image gen: {prompt[:50]}")
+        path, error = generate_image(prompt)
+        
+        if error:
+            self.send_json({"error": error}, 500)
+            return
+        
+        import base64
+        with open(path, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode('utf-8')
+        os.unlink(path)
+        
+        self.send_json({"success": True, "image_base64": b64, "prompt": prompt})
+    except Exception as e:
+        self.send_json({"error": str(e)}, 500)
+
+def handle_text_to_speech(self):
+    try:
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        data = json.loads(body.decode('utf-8'))
+        
+        if data.get('token') != API_SECRET:
+            self.send_json({"error": "Unauthorized"}, 401)
+            return
+        
+        text = data.get('text', '')
+        if not text:
+            self.send_json({"error": "text required"}, 400)
+            return
+        
+        log(f"TTS: {text[:50]}")
+        path, error = text_to_speech(text)
+        
+        if error:
+            self.send_json({"error": error}, 500)
+            return
+        
+        import base64
+        with open(path, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode('utf-8')
+        os.unlink(path)
+        
+        self.send_json({"success": True, "audio_base64": b64, "text": text})
+    except Exception as e:
+        self.send_json({"error": str(e)}, 500)
+
+def handle_speech_to_text(self):
+    try:
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        data = json.loads(body.decode('utf-8'))
+        
+        if data.get('token') != API_SECRET:
+            self.send_json({"error": "Unauthorized"}, 401)
+            return
+        
+        audio_b64 = data.get('audio_base64', '')
+        if not audio_b64:
+            self.send_json({"error": "audio_base64 required"}, 400)
+            return
+        
+        import base64
+        audio_data = base64.b64decode(audio_b64)
+        
+        log("STT processing...")
+        text, error = speech_to_text(audio_data)
+        
+        if error:
+            self.send_json({"error": error}, 500)
+            return
+        
+        self.send_json({"success": True, "text": text})
+    except Exception as e:
+        self.send_json({"error": str(e)}, 500)
