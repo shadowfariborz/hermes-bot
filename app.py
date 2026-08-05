@@ -596,7 +596,7 @@ def generate_image(prompt, width=1024, height=768):
         return None, str(e)
 
 # ── Text-to-Speech ───────────────────────────────────────────────────
-def text_to_speech(text, voice="fa-IR-DilaraNeural"):
+def text_to_speech(text, voice="fa-IR-FaridNeural"):
     """Convert text to speech using edge-tts"""
     try:
         import asyncio
