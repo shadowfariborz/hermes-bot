@@ -1,222 +1,237 @@
 /**
- * 🤖 Fariborz Bot - Cloudflare Worker v2
- * Telegram Bot → Cloudflare Worker → Railway API → AI Model
+ * 🤖 Fariborz Bot v4 - Cloudflare Worker
  * 
- * قابلیت‌ها: چت، ویس، عکس، TTS، STT
+ * ✅ Photos: download + analyze when mentioned
+ * ✅ Reply chain: read replied messages + their photos
+ * ✅ Chat history/memory
+ * ✅ Voice (STT) + Image Gen + TTS
  */
 
-const RATE_LIMIT_SECONDS = 5;
+const API_URL = "https://vigilant-perfection-production-b218.up.railway.app";
+const API_SECRET = "fariborz-hermes-2024";
 
 export default {
   async fetch(request, env) {
     try {
       if (request.method === 'POST') {
         const update = await request.json();
-        if (update.message || update.callback_query) {
-          await handleUpdate(update, env);
+        if (update.message) {
+          await handleMessage(update.message, env);
         }
         return new Response('OK', { status: 200 });
       }
-      return new Response('Fariborz Bot v2 is running!', { status: 200 });
+      return new Response('Fariborz v4', { status: 200 });
     } catch (e) {
-      console.error('Error:', e);
+      console.error('Fatal:', e);
       return new Response('Error', { status: 500 });
     }
   }
 };
 
-// ── Main Handler ────────────────────────────────────────────────────
-async function handleUpdate(update, env) {
-  const msg = update.message || update.callback_query?.message;
-  if (!msg) return;
-
+async function handleMessage(msg, env) {
   const chatId = msg.chat.id;
   const userId = msg.from?.id;
   const name = msg.from?.first_name || '';
-  const text = (msg.text || msg.caption || '').toString();
-  const isAdmin = String(userId) === env.ADMIN_ID;
+  let text = (msg.text || msg.caption || '').toString();
+  const chatType = msg.chat.type;
+  const isPrivate = chatType === 'private';
+  const isGroup = !isPrivate;
+  const msgId = msg.message_id;
+  const hasPhoto = !!msg.photo;
+  const hasVoice = !!msg.voice;
 
-  // Rate limit
+  // Rate limit (3 sec)
   const rlKey = `rl_${userId}`;
   const last = await env.CHAT_HISTORY.get(rlKey);
-  if (last && (Date.now() - parseInt(last)) / 1000 < RATE_LIMIT_SECONDS) {
-    return;
-  }
+  if (last && (Date.now() - parseInt(last)) < 3000) return;
   await env.CHAT_HISTORY.put(rlKey, String(Date.now()));
 
-  // ── Commands ──────────────────────────────────────────────────
-  if (text === '/start') {
-    return sendMsg(chatId, `سلام ${name}! 👋\nمن فریبرز هستم.\n\n💬 متن بفرست\n🎤 ویس بفرست\n🎨 بگو "عکس بساز"`, env);
-  }
-  if (text === '/help') {
-    return sendMsg(chatId, `📋 راهنما:\n\n💬 هر متنی → جواب\n🎤 ویس → میفهمم\n🎨 "عکس بساز از ..." → عکس\n🔊 "ویس بفرست ..." → صدا\n🔍 "سرچ کن ..." → جستجو`, env);
+  // ── Group: only respond when mentioned/replied/bot_name ──────
+  if (isGroup) {
+    const isReplyToBot = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.is_bot;
+    const mentionPatterns = ['فریبرز', 'fariborz', '@fariborz_bot', '@nuxal_bot'];
+    const isMentioned = mentionPatterns.some(p => text.toLowerCase().includes(p.toLowerCase()));
+    
+    if (!isReplyToBot && !isMentioned && !hasVoice) return;
+    
+    mentionPatterns.forEach(p => {
+      text = text.replace(new RegExp(p, 'gi'), '').trim();
+    });
   }
 
-  // ── Voice (STT) ───────────────────────────────────────────────
-  if (msg.voice) {
+  // Commands
+  if (text === '/start') {
+    return sendMsg(chatId, `سلام ${name}! 👋\nمن فریبرز هستم.\n\n💬 متن بفرست\n🎤 ویس بفرست\n🎨 بگو "عکس بساز"\n🔊 بگو "ویس بفرست"`, env, msgId);
+  }
+  if (text === '/help') {
+    return sendMsg(chatId, `📋 راهنما:\n💬 هر متنی → جواب\n🎤 ویس → میفهمم\n🎨 "عکس بساز از ..." → عکس\n🔊 "ویس بفرست ..." → صدا`, env, msgId);
+  }
+
+  // Voice (STT)
+  if (hasVoice) {
     return await handleVoice(msg, chatId, userId, name, env);
   }
 
-  // ── Photo (Image Understanding) ───────────────────────────────
-  if (msg.photo) {
-    return await handlePhoto(msg, chatId, userId, name, text, env);
-  }
-
-  // ── Image Generation ──────────────────────────────────────────
+  // Image gen
   if (text.match(/^(عکس|تصویر)\s*(بساز|بکن)/i) || text.startsWith('/generate-image')) {
     const prompt = text.replace(/^(عکس|تصویر)\s*(بساز|بکن)\s*/i, '').replace(/^\/generate-image\s*/i, '').trim();
-    if (!prompt) return sendMsg(chatId, '🎨 موضوع عکس رو بگو!\nمثال: عکس بساز از گربه', env);
+    if (!prompt) return sendMsg(chatId, '🎨 موضوع عکس رو بگو!', env, msgId);
     return await handleImageGen(prompt, chatId, env);
   }
 
-  // ── TTS ───────────────────────────────────────────────────────
+  // TTS
   if (text.match(/^(ویس|صدا)\s*(بفرست|بده)/i) || text.startsWith('/voice')) {
     const ttsText = text.replace(/^(ویس|صدا)\s*(بفرست|بده)\s*/i, '').replace(/^\/voice\s*/i, '').trim();
-    if (!ttsText) return sendMsg(chatId, '🔊 متن رو بگو!\nمثال: ویس بفرست سلام', env);
+    if (!ttsText) return sendMsg(chatId, '🔊 متن رو بگو!', env, msgId);
     return await handleTTS(ttsText, chatId, env);
   }
 
-  // ── Chat ──────────────────────────────────────────────────────
-  if (text) {
-    return await handleChat(text, chatId, userId, name, env);
+  // ── Chat: build context from reply chain + photos ────────────
+  let context = '';
+  let imageB64 = null;
+
+  // Current message photo
+  if (hasPhoto) {
+    imageB64 = await downloadPhoto(msg, env);
   }
+
+  // Walk reply chain (up to 5 levels)
+  let current = msg;
+  let depth = 0;
+  
+  while (current.reply_to_message && depth < 5) {
+    depth++;
+    const rm = current.reply_to_message;
+    const rName = rm.from?.first_name || '?';
+    const rText = (rm.text || rm.caption || '').toString().substring(0, 300);
+    const rHasPhoto = !!rm.photo;
+    const rHasVoice = !!rm.voice;
+    
+    // If replied message has a photo and we don't have one yet, download it
+    if (rHasPhoto && !imageB64) {
+      imageB64 = await downloadPhoto(rm, env);
+      context = `[عکس از ${rName}]: ${rText}\n` + context;
+    } else if (rHasVoice) {
+      context = `[ویس از ${rName}]: ${rText || '(پیام صوتی)'}\n` + context;
+    } else {
+      context = `[پیام ${rName}]: ${rText}\n` + context;
+    }
+    
+    current = rm;
+  }
+
+  // Build final message
+  let fullMsg = text || 'این عکس رو توضیح بده';
+  if (context) {
+    fullMsg = context + `\n[${name}]: ${fullMsg}`;
+  }
+
+  return await handleChat(fullMsg, chatId, userId, name, env, imageB64, msgId);
 }
 
-// ── Voice → Text → Chat ────────────────────────────────────────────
 async function handleVoice(msg, chatId, userId, name, env) {
   try {
     await sendAction(chatId, 'record_voice', env);
-
-    // Download voice
     const file = await tgApi('getFile', { file_id: msg.voice.file_id }, env);
-    if (!file?.result?.file_path) return sendMsg(chatId, '❌ خطا در دانلود صدا', env);
-
-    const voiceRes = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.result.file_path}`);
-    const buf = await voiceRes.arrayBuffer();
+    if (!file?.result?.file_path) return sendMsg(chatId, '❌ خطا در دانلود صدا', env, msg.message_id);
+    
+    const res = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.result.file_path}`);
+    const buf = await res.arrayBuffer();
     const b64 = bufToB64(buf);
-
-    // STT
-    const stt = await apiPost('/speech-to-text', { audio_base64: b64 }, env);
-    if (!stt?.text) return sendMsg(chatId, '❌ نتونستم صدا رو بفهمم', env);
-
-    await sendMsg(chatId, `🎤 شنیدم: "${stt.text}"`, env);
-    await handleChat(stt.text, chatId, userId, name, env);
+    
+    const stt = await apiPost('/speech-to-text', { audio_base64: b64 });
+    if (!stt?.text) return sendMsg(chatId, '❌ نتونستم صدا رو بفهمم', env, msg.message_id);
+    
+    await sendMsg(chatId, `🎤 شنیدم: "${stt.text}"`, env, msg.message_id);
+    await handleChat(stt.text, chatId, userId, name, env, null, msg.message_id);
   } catch (e) {
     console.error('Voice error:', e);
-    await sendMsg(chatId, '❌ خطا در پردازش صدا', env);
+    await sendMsg(chatId, '❌ خطا در پردازش صدا', env, msg.message_id);
   }
 }
 
-// ── Photo → Image Understanding → Chat ─────────────────────────────
-async function handlePhoto(msg, chatId, userId, name, text, env) {
+async function downloadPhoto(msg, env) {
   try {
-    await sendAction(chatId, 'typing', env);
-
     const photo = msg.photo[msg.photo.length - 1];
     const file = await tgApi('getFile', { file_id: photo.file_id }, env);
-    if (!file?.result?.file_path) return sendMsg(chatId, '❌ خطا در دانلود عکس', env);
-
-    const photoRes = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.result.file_path}`);
-    const buf = await photoRes.arrayBuffer();
-    const b64 = bufToB64(buf);
-
-    const prompt = text || 'این عکس رو توصیف کن';
-    await handleChat(prompt, chatId, userId, name, env, b64);
+    if (!file?.result?.file_path) return null;
+    
+    const res = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.result.file_path}`);
+    const buf = await res.arrayBuffer();
+    return bufToB64(buf);
   } catch (e) {
-    console.error('Photo error:', e);
-    await sendMsg(chatId, '❌ خطا در پردازش عکس', env);
+    console.error('Photo download error:', e);
+    return null;
   }
 }
 
-// ── Image Generation ───────────────────────────────────────────────
 async function handleImageGen(prompt, chatId, env) {
   try {
     await sendAction(chatId, 'upload_photo', env);
-
-    const res = await apiPost('/generate-image', { prompt }, env);
+    const res = await apiPost('/generate-image', { prompt });
     if (!res?.image_base64) return sendMsg(chatId, '❌ نتونستم عکس بسازم', env);
-
-    const imgBuf = b64ToBuf(res.image_base64);
-    const blob = new Blob([imgBuf], { type: 'image/jpeg' });
-
+    
+    const blob = new Blob([b64ToBuf(res.image_base64)], { type: 'image/jpeg' });
     const fd = new FormData();
     fd.append('chat_id', String(chatId));
     fd.append('photo', blob, 'image.jpg');
     fd.append('caption', `🎨 ${prompt}`);
-
+    
     await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: 'POST', body: fd });
   } catch (e) {
-    console.error('Image gen error:', e);
     await sendMsg(chatId, '❌ خطا در ساخت عکس', env);
   }
 }
 
-// ── Text-to-Speech ─────────────────────────────────────────────────
 async function handleTTS(text, chatId, env) {
   try {
     await sendAction(chatId, 'record_voice', env);
-
-    const res = await apiPost('/text-to-speech', { text }, env);
+    const res = await apiPost('/text-to-speech', { text });
     if (!res?.audio_base64) return sendMsg(chatId, '❌ نتونستم صدا بسازم', env);
-
-    const audBuf = b64ToBuf(res.audio_base64);
-    const blob = new Blob([audBuf], { type: 'audio/mpeg' });
-
+    
+    const blob = new Blob([b64ToBuf(res.audio_base64)], { type: 'audio/mpeg' });
     const fd = new FormData();
     fd.append('chat_id', String(chatId));
     fd.append('voice', blob, 'voice.mp3');
-
+    
     await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendVoice`, { method: 'POST', body: fd });
   } catch (e) {
-    console.error('TTS error:', e);
     await sendMsg(chatId, '❌ خطا در تولید صدا', env);
   }
 }
 
-// ── Chat ───────────────────────────────────────────────────────────
-async function handleChat(text, chatId, userId, name, env, imageB64 = null) {
+async function handleChat(text, chatId, userId, name, env, imageB64, replyTo) {
   try {
     await sendAction(chatId, 'typing', env);
-
-    // History
+    
     const hKey = `hist_${chatId}`;
     const hJson = await env.CHAT_HISTORY.get(hKey);
     let history = hJson ? JSON.parse(hJson) : [];
-
-    const body = {
-      message: text,
-      user_id: String(userId),
-      user_name: name,
-      history: history
-    };
+    
+    const body = { message: text, user_id: String(userId), user_name: name, history: history };
     if (imageB64) body.image_base64 = imageB64;
-
-    const res = await apiPost('/chat', body, env);
     
-    // Check for errors
-    if (res?.error) {
-      console.error('API returned error:', res.error);
-      await sendMsg(chatId, `⚠️ ${res.error}`, env);
-      return;
-    }
+    const res = await apiPost('/chat', body);
+    if (res?.error) return sendMsg(chatId, `⚠️ ${res.error}`, env, replyTo);
     
-    const reply = res?.response || res?.message || 'پاسخی دریافت نشد';
-    await sendMsg(chatId, reply, env);
-
-    // Update history
-    history.push({ role: 'user', text, timestamp: Date.now() });
-    history.push({ role: 'assistant', text: reply, timestamp: Date.now() });
+    const reply = res?.response || 'پاسخی دریافت نشد';
+    await sendMsg(chatId, reply, env, replyTo);
+    
+    history.push({ role: 'user', text: text.substring(0, 500), timestamp: Date.now() });
+    history.push({ role: 'assistant', text: reply.substring(0, 500), timestamp: Date.now() });
     if (history.length > 20) history = history.slice(-20);
     await env.CHAT_HISTORY.put(hKey, JSON.stringify(history));
   } catch (e) {
     console.error('Chat error:', e);
-    await sendMsg(chatId, `❌ خطا: ${e.message}`, env);
+    await sendMsg(chatId, '❌ خطا در پردازش پیام', env, replyTo);
   }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-async function sendMsg(chatId, text, env) {
-  await tgApi('sendMessage', { chat_id: chatId, text }, env);
+async function sendMsg(chatId, text, env, replyTo) {
+  const body = { chat_id: chatId, text };
+  if (replyTo) body.reply_to_message_id = replyTo;
+  await tgApi('sendMessage', body, env);
 }
 
 async function sendAction(chatId, action, env) {
@@ -232,25 +247,18 @@ async function tgApi(method, body, env) {
   return res.json();
 }
 
-async function apiPost(path, body, env) {
+async function apiPost(path, body) {
   try {
-    const res = await fetch(`${env.API_URL}${path}`, {
+    const res = await fetch(`${API_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: env.API_SECRET, ...body })
+      body: JSON.stringify({ token: API_SECRET, ...body })
     });
-    
     const data = await res.json();
-    
-    // Check if API returned an error
-    if (data.error || data.response?.includes('Error')) {
-      console.error(`API ${path} error:`, data);
-      return { error: data.error || data.response || 'API Error' };
-    }
-    
+    if (data.error) return { error: data.error };
     return data;
   } catch (e) {
-    console.error(`API ${path} fetch error:`, e);
+    console.error(`API ${path}:`, e);
     return { error: 'Connection error' };
   }
 }
