@@ -83,7 +83,7 @@ async function handleMessage(msg, env) {
   // TTS
   if (text.match(/^(ویس|صدا)\s*(بفرست|بده)/i) || text.startsWith('/voice')) {
     const ttsText = text.replace(/^(ویس|صدا)\s*(بفرست|بده)\s*/i, '').replace(/^\/voice\s*/i, '').trim();
-    if (!ttsText) return sendMsg(chatId, '🔊 متن رو بگو!', env, msgId);
+    if (!ttsText) return sendMsg(chatId, '🔊 متن رو بگو!\nمثال: /voice سلام دنیا', env, msgId);
     return await handleTTS(ttsText, chatId, env);
   }
 
