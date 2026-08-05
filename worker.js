@@ -48,7 +48,7 @@ async function handleMessage(msg, env) {
 
   // ── Group: only respond when mentioned/replied/bot_name ──────
   if (isGroup) {
-    const isReplyToBot = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.is_bot;
+    const isReplyToBot = msg.reply_to_message && msg.reply_to_message.from && (msg.reply_to_message.from.username === 'nuxal_bot' || msg.reply_to_message.from.username === 'fariborz_bot');
     const mentionPatterns = ['فریبرز', 'fariborz', '@fariborz_bot', '@nuxal_bot'];
     const isMentioned = mentionPatterns.some(p => text.toLowerCase().includes(p.toLowerCase()));
     
